@@ -15,6 +15,11 @@ body{margin:0;background:#000;color:#ff0;font-family:'Courier New',monospace;dis
 #row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
 #bar{flex:1;height:16px;border:2px solid #fff;background:#f00}
 #fill{height:100%;width:100%;background:#ff0}
+#souls{display:flex;gap:6px;align-items:center;margin-top:5px;font-size:11px}
+.so{width:16px;height:16px;border-radius:50%;opacity:.3;border:2px solid transparent}
+.so.on{opacity:1;border-color:#fff}
+#st{color:#fff;margin-left:4px}
+#brain{color:#0cc;font-size:11px;margin-top:4px;min-height:14px}
 canvas{display:block;width:100%;background:#000;border:3px solid #fff;touch-action:none}
 #lv{display:flex;gap:8px;margin:8px 0}
 #lv button{flex:1;padding:10px 4px;font:bold 12px 'Courier New',monospace;background:#000;border:3px solid;touch-action:none}
@@ -23,25 +28,27 @@ canvas{display:block;width:100%;background:#000;border:3px solid #fff;touch-acti
 #l1.on{background:#0f0!important;color:#000}
 #l2.on{background:#f0f!important;color:#000}
 #hint{color:#0cc;font-size:11px;text-align:center;margin:6px 0 8px}
-#atk{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.a{padding:13px 2px;background:#000;color:#f80;border:2px solid #f80;font:12px 'Courier New',monospace;touch-action:none}
+#atk{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.a{padding:13px 2px;background:#000;color:#f80;border:2px solid #f80;font:11px 'Courier New',monospace;touch-action:none}
 .a:active{background:#f80;color:#000}
-.a:last-child{grid-column:1/-1}
+.a.m{grid-column:span 2;color:#f0f;border-color:#f0f}
 </style>
 </head>
 <body oncontextmenu="return false">
 <div id="app">
-  <div id="hud">
-    <div id="row">HEART HP <div id="bar"><div id="fill"></div></div><span id="hpt"></span></div>
-    <div>PHASE: DESTROY THE HEART</div>
-  </div>
-  <canvas id="c"></canvas>
-  <div id="lv">
-    <button id="l1" class="on">LEVEL 1 (500 HP)</button>
-    <button id="l2">LEVEL 2 (900 HP)</button>
-  </div>
-  <div id="hint">TAP ARENA OR PRESS ATTACK BUTTONS TO DESTROY THE HEART</div>
-  <div id="atk"></div>
+<div id="hud">
+<div id="row">HEART HP <div id="bar"><div id="fill"></div></div><span id="hpt"></span></div>
+<div>PHASE: DESTROY THE HEART</div>
+<div id="souls"></div>
+<div id="brain"></div>
+</div>
+<canvas id="c"></canvas>
+<div id="lv">
+<button id="l1" class="on">LEVEL 1 (500 HP)</button>
+<button id="l2">LEVEL 2 (900 HP)</button>
+</div>
+<div id="hint">TAP ARENA OR PRESS ATTACK BUTTONS TO DESTROY THE HEART</div>
+<div id="atk"></div>
 </div>
 <script>
 const W=340,H=400,R=5,Q=7,SPEED=260,MAXHZ=250;
@@ -55,186 +62,292 @@ const cl=(v,a,b)=>Math.max(a,Math.min(b,v));
 const line=(a,b,c,d)=>{g.beginPath();g.moveTo(a,b);g.lineTo(c,d);g.stroke()};
 const EMPTY=[];
 
-/* ---------- hazards: rects(t,m) = area (in seconds t from now) where the heart centre gets hit, with margin m ---------- */
+/* ---------- SOULS: each one plays by different rules (sp=speed, dr=gravity, vs=vertical speed, rad=hitbox, ts=time) ---------- */
+const SO={
+red:{n:'RED',c:'#f00',sp:1,dr:0,vs:1,rad:1,why:'FREE MOVE'},
+orange:{n:'ORANGE',c:'#f80',sp:1.4,dr:0,vs:1,rad:1.25,why:'BRAVERY DASH'},
+blue:{n:'BLUE',c:'#39f',sp:1.25,dr:120,vs:.6,rad:1,why:'GRAVITY LANE DODGE'},
+yellow:{n:'YELLOW',c:'#ff0',sp:.9,dr:0,vs:1,rad:1,why:'JUSTICE SHOT'},
+green:{n:'GREEN',c:'#0c0',sp:.5,dr:0,vs:1,rad:1,why:'SHIELD TANKS IT'},
+cyan:{n:'CYAN',c:'#0ff',sp:.9,dr:0,vs:1,rad:1,why:'PATIENCE: SLOW TIME'}
+};
+
+/* ---------- hazards: rects(t,m) = area where the heart centre gets hit t seconds from now ---------- */
 function wall(dir,gapW,amp,spd){
-  const v=dir<2,L=v?H:W,C=v?W:H,th=14,hw=gapW/2;
-  const base=amp?C/2:hw+20+Math.random()*(C-gapW-40),ph=Math.random()*6.28;
-  const gc=a=>base+amp*Math.sin(a*3.2+ph);
-  const s=a=>dir%2==0?-th+spd*a:L-spd*a;
-  return{age:0,hit:false,done:false,dmg:20,
-    upd(dt){this.age+=dt;this.done=this.age>(L+th)/spd+.1},
-    rects(t,m){const a=this.age+t,p=s(a),c=gc(a),ma=m>R?m+8:m,lo=p-ma,hi=p+th+ma;
-      return v?[[-50,lo,c-hw+m,hi],[c+hw-m,lo,W+50,hi]]:[[lo,-50,hi,c-hw+m],[lo,c+hw-m,hi,H+50]]},
-    draw(){const a=this.age,p=s(a),c=gc(a);g.fillStyle='#fff';
-      if(v){g.fillRect(0,p,c-hw,th);g.fillRect(c+hw,p,W-c-hw,th)}
-      else{g.fillRect(p,0,th,c-hw);g.fillRect(p,c+hw,th,H-c-hw)}}};
+const v=dir<2,L=v?H:W,C=v?W:H,th=14,hw=gapW/2;
+const base=amp?C/2:hw+20+Math.random()*(C-gapW-40),ph=Math.random()*6.28;
+const gc=a=>base+amp*Math.sin(a*3.2+ph);
+const s=a=>dir%2==0?-th+spd*a:L-spd*a;
+return{k:'w',age:0,hit:false,done:false,dmg:20,
+upd(dt){this.age+=dt;this.done=this.age>(L+th)/spd+.1},
+rects(t,m){const a=this.age+t,p=s(a),c=gc(a),ma=m>R?m+8:m,lo=p-ma,hi=p+th+ma;
+return v?[[-50,lo,c-hw+m,hi],[c+hw-m,lo,W+50,hi]]:[[lo,-50,hi,c-hw+m],[lo,c+hw-m,hi,H+50]]},
+draw(){const a=this.age,p=s(a),c=gc(a);g.fillStyle='#fff';
+if(v){g.fillRect(0,p,c-hw,th);g.fillRect(c+hw,p,W-c-hw,th)}
+else{g.fillRect(p,0,th,c-hw);g.fillRect(p,c+hw,th,H-c-hw)}}};
 }
-function blaster(px,py){
-  return{age:0,hit:false,done:false,dmg:50,
-    upd(dt){this.age+=dt;this.done=this.age>1.15},
-    rects(t,m){const a=this.age+t;if(a<.7||a>1.05)return EMPTY;const w=17+m;
-      return[[px-w,-50,px+w,H+50],[-50,py-w,W+50,py+w]]},
-    draw(){const a=this.age;
-      if(a<.7){g.strokeStyle='rgba(255,255,0,'+(.45+.3*Math.sin(a*30))+')';g.lineWidth=1;line(px,0,px,H);line(0,py,W,py)}
-      else if(a<1.05){const k=1-(a-.7)/.35*.5;
-        g.fillStyle='rgba(90,220,255,'+k+')';g.fillRect(px-17,0,34,H);g.fillRect(0,py-17,W,34);
-        g.fillStyle='#fff';g.fillRect(px-7,0,14,H);g.fillRect(0,py-7,W,14)}}};
+// mode 1 = vertical beam only, delay = staggered start, track = follows the heart before locking on
+function blaster(px,py,mode,delay,track){
+return{k:'b',age:-(delay||0),hit:false,done:false,dmg:mode?35:50,
+upd(dt){this.age+=dt;if(track&&this.age<.4){px=S.x;py=S.y}this.done=this.age>1.15},
+rects(t,m){const a=this.age+t;if(a<.7||a>1.05)return EMPTY;const w=17+m;
+return mode?[[px-w,-50,px+w,H+50]]:[[px-w,-50,px+w,H+50],[-50,py-w,W+50,py+w]]},
+draw(){const a=this.age;if(a<0)return;
+if(a<.7){g.strokeStyle='rgba(255,'+(track?100:255)+',0,'+(.45+.3*Math.sin(a*30))+')';g.lineWidth=1;line(px,0,px,H);if(!mode)line(0,py,W,py)}
+else if(a<1.05){const k=1-(a-.7)/.35*.5;
+g.fillStyle='rgba(90,220,255,'+k+')';g.fillRect(px-17,0,34,H);if(!mode)g.fillRect(0,py-17,W,34);
+g.fillStyle='#fff';g.fillRect(px-7,0,14,H);if(!mode)g.fillRect(0,py-7,W,14)}}};
 }
 function crusher(){
-  const gy=50+Math.random()*(H-100),gh=34;
-  const ext=a=>a<.6?0:a<1?(a-.6)/.4:a<1.7?1:a<2.1?1-(a-1.7)/.4:0;
-  return{age:0,hit:false,done:false,dmg:60,
-    upd(dt){this.age+=dt;this.done=this.age>2.15},
-    rects(t,m){const e=ext(this.age+t);if(e<=0)return EMPTY;
-      return[[-50,-50,W+50,e*(gy-gh/2)+m],[-50,H-e*(H-gy-gh/2)-m,W+50,H+50]]},
-    draw(){const e=ext(this.age);
-      if(e<=0){g.strokeStyle='rgba(255,60,60,.6)';g.lineWidth=1;line(0,gy-gh/2,W,gy-gh/2);line(0,gy+gh/2,W,gy+gh/2)}
-      else{g.fillStyle='#fff';g.fillRect(0,0,W,e*(gy-gh/2));g.fillRect(0,H-e*(H-gy-gh/2),W,H)}}};
+const gy=50+Math.random()*(H-100),gh=34;
+const ext=a=>a<.6?0:a<1?(a-.6)/.4:a<1.7?1:a<2.1?1-(a-1.7)/.4:0;
+return{k:'c',age:0,hit:false,done:false,dmg:60,
+upd(dt){this.age+=dt;this.done=this.age>2.15},
+rects(t,m){const e=ext(this.age+t);if(e<=0)return EMPTY;
+return[[-50,-50,W+50,e*(gy-gh/2)+m],[-50,H-e*(H-gy-gh/2)-m,W+50,H+50]]},
+draw(){const e=ext(this.age);
+if(e<=0){g.strokeStyle='rgba(255,60,60,.6)';g.lineWidth=1;line(0,gy-gh/2,W,gy-gh/2);line(0,gy+gh/2,W,gy+gh/2)}
+else{g.fillStyle='#fff';g.fillRect(0,0,W,e*(gy-gh/2));g.fillRect(0,H-e*(H-gy-gh/2),W,H)}}};
 }
-const touching=(h,x,y,m)=>h.rects(0,m).some(r=>x>=r[0]&&x<=r[2]&&y>=r[1]&&y<=r[3]);
+function rain(){
+const ds=[];for(let i=0;i<9;i++)ds.push([14+Math.random()*(W-28),i*.13]);
+return{k:'w',age:0,hit:false,done:false,dmg:12,
+upd(dt){this.age+=dt;this.done=this.age>2.7},
+rects(t,m){const a=this.age+t,o=[];for(const d of ds){if(a<d[1])continue;const b=(a-d[1])*320;o.push([d[0]-6-m,b-90-m,d[0]+6+m,b+m])}return o},
+draw(){g.fillStyle='#fff';for(const d of ds){if(this.age<d[1])continue;const b=(this.age-d[1])*320;g.fillRect(d[0]-6,b-90,12,90)}}};
+}
+const hitAt=(h,t,m)=>h.rects(t,m).some(r=>S.x>=r[0]&&S.x<=r[2]&&S.y>=r[1]&&S.y<=r[3]);
 const add=(...hs)=>{S.hz.push(...hs);if(S.hz.length>MAXHZ)S.hz.splice(0,S.hz.length-MAXHZ)};
+function barrage(){const x0=10+Math.random()*30;for(let i=0;i<5;i++)add(blaster(x0+i*70,H/2,1,i*.12))}
 
-/* ---------- attacks (Sans): no cooldown, multi-touch ---------- */
+/* ---------- attacks (Sans): cl = what the Heart brain learns from it ---------- */
 const A={
-  bone:{n:'BONE',f:()=>add(wall(rd(4),56,0,170))},
-  wave:{n:'WAVE',f:()=>add(wall(rd(4),60,68,150))},
-  blaster:{n:'BLASTER',f:()=>{
-    const sx=Math.random()<.5?-1:1,sy=Math.random()<.5?-1:1;
-    add(blaster(S.x,S.y),blaster(cl(S.x+sx*(70+Math.random()*60),20,W-20),cl(S.y+sy*(70+Math.random()*60),20,H-20)))}},
-  twowaves:{n:'TWO WAVES',f:()=>{const d=rd(4);add(wall(d,60,68,150),wall(d^1,60,68,150))}},
-  freeze:{n:'FREEZE',f:()=>S.frz=1.2},
-  grab:{n:'GRAB',f:()=>S.grab=2.2},
-  crusher:{n:'CRUSHER',f:()=>add(crusher())}
+bone:{n:'BONE',cl:'w',f:()=>add(wall(rd(4),56,0,170))},
+wave:{n:'WAVE',cl:'w',f:()=>add(wall(rd(4),60,68,150))},
+blaster:{n:'BLASTER',cl:'b',f:()=>{
+const sx=Math.random()<.5?-1:1,sy=Math.random()<.5?-1:1;
+add(blaster(S.x,S.y),blaster(cl(S.x+sx*(70+Math.random()*60),20,W-20),cl(S.y+sy*(70+Math.random()*60),20,H-20)))}},
+twowaves:{n:'TWO WAVES',cl:'w',f:()=>{const d=rd(4);add(wall(d,60,68,150),wall(d^1,60,68,150))}},
+freeze:{n:'FREEZE',cl:'f',f:()=>{S.frz=1.2}},
+grab:{n:'GRAB',cl:'f',f:()=>{S.grab=2.2}},
+crusher:{n:'CRUSHER',cl:'c',f:()=>add(crusher())},
+rain:{n:'RAIN',cl:'w',f:()=>add(rain())},
+barrage:{n:'BARRAGE',cl:'b',f:barrage},
+snipe:{n:'SNIPE',cl:'b',f:()=>add(blaster(S.x,S.y,0,0,1))},
+mega:{n:'MEGA',cl:'c',m:1,f:()=>{if(S.mega>0)return 1;S.mega=10;add(crusher());const d=rd(4);add(wall(d,60,68,150),wall(d^1,60,68,150));barrage();add(blaster(S.x,S.y,0,.3,1))}}
 };
 const box=$('atk');
 for(const k in A){
-  const b=document.createElement('button');b.className='a';b.textContent=A[k].n;
-  b.addEventListener('pointerdown',e=>{e.preventDefault();if(!S.over)A[k].f()});
-  box.appendChild(b);
+const b=document.createElement('button');b.className='a'+(A[k].m?' m':'');b.textContent=A[k].n;
+b.addEventListener('pointerdown',e=>{e.preventDefault();if(!S.over&&!A[k].f())S.cnt[A[k].cl]++});
+A[k].el=b;box.appendChild(b);
 }
+const SB=$('souls'),sic={};
+for(const k in SO){const s=document.createElement('span');s.className='so';s.style.background=SO[k].c;SB.appendChild(s);sic[k]=s}
+const stEl=document.createElement('span');stEl.id='st';SB.appendChild(stEl);
 
 /* ---------- state ---------- */
 function reset(){
-  S={hp:LV[lvl],max:LV[lvl],x:W/2,y:H/2,tx:W/2,ty:H/2,pt:0,pi:30,hz:[],frz:0,grab:0,flash:0,over:false,overT:0};
+S={hp:LV[lvl],max:LV[lvl],x:W/2,y:H/2,tx:W/2,ty:H/2,pt:0,pi:30,hz:[],frz:0,grab:0,flash:0,over:false,overT:0,
+soul:'red',swc:0,sh:3,shT:0,shot:0,slow:0,slowCd:0,mega:0,idle:0,cnt:{w:0,b:0,c:0,f:0},est:{},ai:0,
+heat:new Float32Array(42),fx:[],msg:'',mt:0,blk:0};
 }
 $('l1').addEventListener('pointerdown',()=>{lvl=1;$('l1').className='on';$('l2').className='';reset()});
 $('l2').addEventListener('pointerdown',()=>{lvl=2;$('l2').className='on';$('l1').className='';reset()});
 cv.addEventListener('pointerdown',e=>{
-  e.preventDefault();
-  if(S.over){if(performance.now()-S.overT>900)reset();return}
-  const r=cv.getBoundingClientRect();
-  add(blaster((e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height));
+e.preventDefault();
+if(S.over){if(performance.now()-S.overT>900)reset();return}
+const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)*W/r.width,y=(e.clientY-r.top)*H/r.height;
+add(blaster(x,y));S.cnt.b++;
+const i=cl(Math.floor(x/(W/6)),0,5),j=cl(Math.floor(y/(H/7)),0,6); // remember where the player likes to aim
+for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++){const ii=i+a,jj=j+b;if(ii>=0&&ii<6&&jj>=0&&jj<7)S.heat[jj*6+ii]+=(a||b)?.4:1}
 });
 
-/* ---------- Heart AI ----------
-   Time-expanded search: rasterise every hazard onto a grid for the next ~0.8s,
-   then dynamic programming finds the path with the least damage. If any
-   safe path exists, the heart takes it. */
+/* ---------- Heart brain ----------
+1. Time-expanded DP search: rasterise every hazard for ~1.4s ahead, take the least-damage path.
+2. Each soul is simulated with its own rules (speed, gravity, hitbox, slow time).
+3. If the current soul would take damage, it tests the other souls one per tick and swaps when one is clearly better.
+4. Soul powers: YELLOW deletes bones, GREEN shields+heals, CYAN slows time, ORANGE dashes, BLUE hugs the floor.
+5. Swapping also breaks FREEZE/GRAB, but has a cooldown: bait it, then freeze it.
+6. When idle it reads what the player spams and pre-swaps to the counter soul, and stands away from where the player taps. */
 const CS=10,NX=W/CS,NY=H/CS,NC=NX*NY,K=16;
 const Dz=Array.from({length:K+1},()=>new Float32Array(NC));
 const Cz=Array.from({length:K+1},()=>new Float32Array(NC));
-const Pen=new Float32Array(NC);
+const Pen=new Float32Array(NC),PenH=new Float32Array(NC);
 for(let j=0;j<NY;j++)for(let i=0;i<NX;i++)Pen[j*NX+i]=.0004*Math.hypot((i+.5)*CS-W/2,(j+.5)*CS-H/2);
+let PT=1,PR=R;
 function mark(D,r,w){
-  const i0=Math.max(0,Math.ceil(r[0]/CS-.5)),i1=Math.min(NX-1,Math.floor(r[2]/CS-.5)),
-        j0=Math.max(0,Math.ceil(r[1]/CS-.5)),j1=Math.min(NY-1,Math.floor(r[3]/CS-.5));
-  for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++)D[j*NX+i]+=w;
+const i0=Math.max(0,Math.ceil(r[0]/CS-.5)),i1=Math.min(NX-1,Math.floor(r[2]/CS-.5)),
+j0=Math.max(0,Math.ceil(r[1]/CS-.5)),j1=Math.min(NY-1,Math.floor(r[3]/CS-.5));
+for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++)D[j*NX+i]+=w;
 }
-function plan(sp,drift){
-  const eff=sp*.85,dt=eff>0?Math.max(.09,CS*1.05/eff):.09,shift=drift*dt,reach=eff*dt;
-  const rr=Math.ceil((reach+Math.abs(shift))/CS)+1,off=[];
-  for(let dy=-rr;dy<=rr;dy++)for(let dx=-rr;dx<=rr;dx++)
-    if(Math.hypot(dx*CS,dy*CS-shift)<=reach+CS*.1)off.push(dx,dy);
-  if(!off.length)off.push(0,0);
-  const live=S.hz.filter(h=>!h.hit);
-  for(let k=1;k<=K;k++){
-    const D=Dz[k];D.set(Pen);const t=k*dt;
-    for(const h of live)for(const r of h.rects(t,Q))mark(D,r,h.dmg);
-  }
-  Cz[K].set(Dz[K]);
-  const nf=off.length>>1,fo=new Int32Array(nf);
-  for(let q=0;q<nf;q++)fo[q]=off[2*q+1]*NX+off[2*q];
-  for(let k=K-1;k>=1;k--){
-    const Dk=Dz[k],Ck=Cz[k],Cn=Cz[k+1],wk=1.2-k/K*.5;
-    for(let j=0;j<NY;j++){
-      const edgeRow=j<rr||j>=NY-rr;
-      for(let i=0;i<NX;i++){
-        const c=j*NX+i;let m=1e9;
-        if(!edgeRow&&i>=rr&&i<NX-rr){
-          for(let q=0;q<nf;q++){const v=Cn[c+fo[q]];if(v<m)m=v}
-        }else{
-          for(let q=0;q<nf;q++){
-            const ni=cl(i+off[2*q],0,NX-1),nj=cl(j+off[2*q+1],0,NY-1),v=Cn[nj*NX+ni];
-            if(v<m)m=v;
-          }
-        }
-        Ck[c]=Dk[c]*wk+m;
-      }
-    }
-  }
-  const ci=Math.floor(S.x/CS),cj=Math.floor(S.y/CS);let bs=1e9,bx=S.x,by=S.y;
-  for(let dy=-rr;dy<=rr;dy++)for(let dx=-rr;dx<=rr;dx++){
-    const ni=ci+dx,nj=cj+dy;if(ni<0||nj<0||ni>=NX||nj>=NY)continue;
-    const cx=(ni+.5)*CS,cy=(nj+.5)*CS,d=Math.hypot(cx-S.x,cy-(S.y+shift));
-    if(d>reach+CS*.6)continue;
-    const sc=Cz[1][nj*NX+ni]+.0015*Math.hypot(cx-S.x,cy-S.y);
-    if(sc<bs){bs=sc;bx=cx;by=cy}
-  }
-  if(sp>0&&!pathOk(S.x,S.y,bx,by,sp)){      // diagonal would clip a hazard corner: go one axis at a time
-    if(pathOk(S.x,S.y,bx,S.y,sp))return[bx,S.y];
-    if(pathOk(S.x,S.y,S.x,by,sp))return[S.x,by];
-  }
-  return[bx,by];
+function plan(sp,drift,vs,rad,ts){
+PT=ts;PR=R*rad;const m=Q*rad;
+const eff=sp*.85,dt=eff>0?Math.max(.09,CS*1.05/eff):.09,shift=drift*dt,reach=eff*dt;
+const rr=Math.ceil((reach+Math.abs(shift))/CS)+1,off=[];
+for(let dy=-rr;dy<=rr;dy++)for(let dx=-rr;dx<=rr;dx++)
+if(Math.hypot(dx*CS,(dy*CS-shift)/vs)<=reach+CS*.1)off.push(dx,dy);
+if(!off.length)off.push(0,0);
+for(let j=0;j<NY;j++)for(let i=0;i<NX;i++){const c=j*NX+i;
+PenH[c]=Pen[c]+.05*S.heat[Math.min(6,Math.floor(j*CS/(H/7)))*6+Math.min(5,Math.floor(i*CS/(W/6)))]}
+const live=S.hz.filter(h=>!h.hit);
+for(let k=1;k<=K;k++){
+const D=Dz[k];D.set(PenH);const t=k*dt*ts;
+for(const h of live)for(const r of h.rects(t,m))mark(D,r,h.dmg);
+}
+Cz[K].set(Dz[K]);
+const nf=off.length>>1,fo=new Int32Array(nf);
+for(let q=0;q<nf;q++)fo[q]=off[2*q+1]*NX+off[2*q];
+for(let k=K-1;k>=1;k--){
+const Dk=Dz[k],Ck=Cz[k],Cn=Cz[k+1],wk=1.2-k/K*.5;
+for(let j=0;j<NY;j++){
+const edgeRow=j<rr||j>=NY-rr;
+for(let i=0;i<NX;i++){
+const c=j*NX+i;let mn=1e9;
+if(!edgeRow&&i>=rr&&i<NX-rr){
+for(let q=0;q<nf;q++){const v=Cn[c+fo[q]];if(v<mn)mn=v}
+}else{
+for(let q=0;q<nf;q++){
+const ni=cl(i+off[2*q],0,NX-1),nj=cl(j+off[2*q+1],0,NY-1),v=Cn[nj*NX+ni];
+if(v<mn)mn=v;
+}
+}
+Ck[c]=Dk[c]*wk+mn;
+}
+}
+}
+const ci=Math.floor(S.x/CS),cj=Math.floor(S.y/CS);let bs=1e9,bx=S.x,by=S.y;
+for(let dy=-rr;dy<=rr;dy++)for(let dx=-rr;dx<=rr;dx++){
+const ni=ci+dx,nj=cj+dy;if(ni<0||nj<0||ni>=NX||nj>=NY)continue;
+const cx=(ni+.5)*CS,cy=(nj+.5)*CS,d=Math.hypot(cx-S.x,(cy-(S.y+shift))/vs);
+if(d>reach+CS*.6)continue;
+const sc=Cz[1][nj*NX+ni]+.0015*Math.hypot(cx-S.x,cy-S.y);
+if(sc<bs){bs=sc;bx=cx;by=cy}
+}
+if(sp>0&&!pathOk(S.x,S.y,bx,by,sp)){
+if(pathOk(S.x,S.y,bx,S.y,sp))return[bx,S.y,bs];
+if(pathOk(S.x,S.y,S.x,by,sp))return[S.x,by,bs];
+}
+return[bx,by,bs];
 }
 function pathOk(x0,y0,x1,y1,sp){
-  const T=Math.hypot(x1-x0,y1-y0)/sp;
-  for(let i=1;i<=8;i++){
-    const u=i/8,x=x0+(x1-x0)*u,y=y0+(y1-y0)*u;
-    for(const h of S.hz)if(!h.hit)for(const r of h.rects(T*u,R+1.5))
-      if(x>=r[0]&&x<=r[2]&&y>=r[1]&&y<=r[3])return false;
-  }
-  return true;
+const T=Math.hypot(x1-x0,y1-y0)/sp*PT;
+for(let i=1;i<=8;i++){
+const u=i/8,x=x0+(x1-x0)*u,y=y0+(y1-y0)*u;
+for(const h of S.hz)if(!h.hit)for(const r of h.rects(T*u,PR+1.5))
+if(x>=r[0]&&x<=r[2]&&y>=r[1]&&y<=r[3])return false;
+}
+return true;
+}
+// plan for soul n; cur=true applies the freeze/grab currently on the heart
+function est(n,cur){
+const so=SO[n],fz=cur&&S.frz>0,gr=cur&&S.grab>0,sp=SPEED*so.sp*(fz?0:gr?.4:1),dr=fz?0:so.dr+(gr?380:0);
+const ts=n=='cyan'&&(S.slow>0||S.slowCd<=0)?.4:1;
+const p=plan(sp,dr,so.vs,so.rad,ts);
+if(n=='green')p[2]=Math.max(0,p[2]-S.sh*50);
+if(n=='yellow'&&S.shot<=0)p[2]*=.55;
+return p;
+}
+function msg(t){S.msg='BRAIN: '+t;S.mt=performance.now()}
+function swap(n,why){
+S.soul=n;S.swc=lvl==1?3.5:2;S.frz=0;S.grab=0;S.est={};S.pt=0;msg('SWAP > '+SO[n].n+' ('+why+')');
+}
+function brain(){
+const cur=est(S.soul,true);S.tx=cur[0];S.ty=cur[1];
+if(cur[2]<5)return;                                   // no damage predicted: keep going
+const now=performance.now(),alts=Object.keys(SO).filter(k=>k!=S.soul),n=alts[S.ai++%alts.length];
+S.est[n]={c:est(n,false)[2],t:now};
+if(S.swc<=0){
+let b=null,bc=1e9;
+for(const k in S.est){const v=S.est[k];if(k!=S.soul&&now-v.t<700&&v.c<bc){bc=v.c;b=k}}
+if(b&&bc<cur[2]*.5-2)swap(b,S.frz>0||S.grab>0?'BREAK FREE':SO[b].why);
+}
+if(S.soul=='cyan'&&S.slowCd<=0&&S.slow<=0){S.slow=1.5;S.slowCd=7;msg('CYAN SLOWS TIME')}
+}
+function idlePos(){
+let b=1e9,bx=W/2,by=H/2;
+for(let j=0;j<7;j++)for(let i=0;i<6;i++){
+const x=(i+.5)*W/6,y=(j+.5)*H/7,s=S.heat[j*6+i]+.004*Math.hypot(x-S.x,y-S.y)+.006*Math.hypot(x-W/2,y-H/2);
+if(s<b){b=s;bx=x;by=y}
+}
+return[bx,by];
+}
+function stance(){
+const c=S.cnt,sc={yellow:c.w,cyan:c.b,green:c.c,orange:c.f};let b='red',m=2.5;
+for(const k in sc)if(sc[k]>m){m=sc[k];b=k}
+if(b!=S.soul)swap(b,'READ PLAYER');
 }
 function moveHeart(dt,now){
-  const sp=SPEED*(S.frz>0?0:S.grab>0?.4:1),drift=S.grab>0&&S.frz<=0?380:0;
-  const busy=S.hz.some(h=>!h.hit);
-  if(now-S.pt>S.pi){
-    const t0=performance.now();S.pt=now;[S.tx,S.ty]=busy?plan(sp,drift):[W/2,H/2];
-    S.pi=cl((performance.now()-t0)*1.5,30,90);   // replan often, but never let planning eat the frame budget
-  }
-  const dx=S.tx-S.x,dy=S.ty-S.y,d=Math.hypot(dx,dy),st=Math.min(d,(busy?sp:Math.min(sp,90))*dt);
-  if(d>0){S.x+=dx/d*st;S.y+=dy/d*st}
-  S.y+=drift*dt;
-  S.x=cl(S.x,R,W-R);S.y=cl(S.y,R,H-R);
+const so=SO[S.soul],busy=S.hz.some(h=>!h.hit);
+const sp=SPEED*so.sp*(S.frz>0?0:S.grab>0?.4:1),drift=S.frz>0?0:so.dr+(S.grab>0?380:0);
+if(now-S.pt>S.pi){
+const t0=performance.now();S.pt=now;
+if(busy)brain();else[S.tx,S.ty]=idlePos();
+S.pi=cl((performance.now()-t0)*1.5,30,90);
+}
+const dx=S.tx-S.x,dy=S.ty-S.y,spd=busy?sp:Math.min(sp,90);
+const f=Math.min(1,1/Math.max(Math.abs(dx)/(spd*dt+1e-9),Math.abs(dy)/(spd*so.vs*dt+1e-9),1e-9));
+S.x+=dx*f;S.y+=dy*f+drift*dt;
+S.x=cl(S.x,R,W-R);S.y=cl(S.y,R,H-R);
 }
 
 /* ---------- loop ---------- */
-function heart(x,y,c){
-  g.fillStyle=c;g.beginPath();g.moveTo(x,y+7);
-  g.bezierCurveTo(x-11,y-1,x-6,y-9,x,y-3);g.bezierCurveTo(x+6,y-9,x+11,y-1,x,y+7);g.fill();
+function heart(x,y,c,s){
+g.save();g.translate(x,y);g.scale(s,s);g.fillStyle=c;g.beginPath();g.moveTo(0,7);
+g.bezierCurveTo(-11,-1,-6,-9,0,-3);g.bezierCurveTo(6,-9,11,-1,0,7);g.fill();g.restore();
 }
-let last=performance.now();
+const tick=(k,dt)=>S[k]=Math.max(0,S[k]-dt);
+let last=performance.now(),lastM=-1;
 function loop(now){
-  const dt=Math.min(.05,(now-last)/1000);last=now;
-  if(!S.over){
-    S.frz=Math.max(0,S.frz-dt);S.grab=Math.max(0,S.grab-dt);S.flash=Math.max(0,S.flash-dt);
-    S.hz.forEach(h=>h.upd(dt));
-    moveHeart(dt,now);
-    for(const h of S.hz)if(!h.hit&&touching(h,S.x,S.y,R)){h.hit=true;S.hp-=h.dmg;S.flash=.3}
-    S.hz=S.hz.filter(h=>!h.done);
-    if(S.hp<=0){S.hp=0;S.over=true;S.overT=now;S.hz=[]}
-  }
-  g.clearRect(0,0,W,H);
-  S.hz.forEach(h=>h.draw());
-  if(!S.over)heart(S.x,S.y,S.flash>0?'#fff':S.frz>0||S.grab>0?'#39f':'#f00');
-  else{
-    g.fillStyle='#ff0';g.font='bold 22px Courier New';g.textAlign='center';
-    g.fillText('HEART DESTROYED',W/2,H/2-6);
-    g.font='13px Courier New';g.fillStyle='#0cc';g.fillText('TAP ARENA TO RESTART',W/2,H/2+20);
-  }
-  $('fill').style.width=(S.hp/S.max*100)+'%';
-  $('hpt').textContent=Math.ceil(S.hp)+' / '+S.max;
-  requestAnimationFrame(loop);
+const dt=Math.min(.05,(now-last)/1000);last=now;
+if(!S.over){
+['frz','grab','flash','swc','shot','slow','slowCd','mega'].forEach(k=>tick(k,dt));
+S.shT+=dt;if(S.shT>4){S.shT=0;S.sh=Math.min(3,S.sh+1)}
+for(const k in S.cnt)S.cnt[k]*=1-.08*dt;
+for(let i=0;i<42;i++)S.heat[i]*=1-.2*dt;
+const busy=S.hz.some(h=>!h.hit);S.idle=busy?0:S.idle+dt;
+if(S.idle>1.2&&S.swc<=0)stance();
+const hd=dt*(S.slow>0?.4:1);
+S.hz.forEach(h=>h.upd(hd));
+moveHeart(dt,now);
+if(S.soul=='green')S.hp=Math.min(S.max,S.hp+4*dt);
+if(S.soul=='yellow'&&S.shot<=0)for(const h of S.hz){           // Justice: delete the bone that is about to land
+if(h.k!='w'||h.hit)continue;
+let th=false;for(let t=.05;t<=.7;t+=.05)if(hitAt(h,t,R+10)){th=true;break}
+if(th){h.done=true;S.shot=1.3;S.fx.push({x:S.x,y:S.y,t:.25});msg('YELLOW SHOT: BONE DELETED');break}
+}
+for(const h of S.hz)if(!h.hit&&hitAt(h,0,R*SO[S.soul].rad)){
+h.hit=true;
+if(S.soul=='green'&&S.sh>0){S.sh--;S.blk=.3;msg('SHIELD BLOCKED IT')}
+else{S.hp-=h.dmg;S.flash=.3}
+}
+S.hz=S.hz.filter(h=>!h.done);
+S.fx=S.fx.filter(f=>(f.t-=dt)>0);
+if(S.hp<=0){S.hp=0;S.over=true;S.overT=now;S.hz=[]}
+}
+g.clearRect(0,0,W,H);
+if(S.slow>0){g.fillStyle='rgba(0,255,255,.09)';g.fillRect(0,0,W,H)}
+S.hz.forEach(h=>h.draw());
+for(const f of S.fx){g.strokeStyle='rgba(255,255,0,'+f.t*4+')';g.lineWidth=4;line(f.x,f.y,f.x,0)}
+if(!S.over){
+const so=SO[S.soul];
+heart(S.x,S.y,S.flash>0?'#fff':so.c,so.rad);
+g.lineWidth=1;
+if(S.frz>0){g.strokeStyle='#8cf';g.beginPath();g.arc(S.x,S.y,11,0,7);g.stroke()}
+if(S.grab>0){g.strokeStyle='#a0f';g.beginPath();g.arc(S.x,S.y,11,0,7);g.stroke()}
+if(S.soul=='green'){g.strokeStyle=S.blk>0?'#fff':'#0c0';for(let i=0;i<S.sh;i++){g.beginPath();g.arc(S.x,S.y,13+i*3,0,7);g.stroke()}S.blk=Math.max(0,S.blk-dt)}
+}else{
+g.fillStyle='#ff0';g.font='bold 22px Courier New';g.textAlign='center';
+g.fillText('HEART DESTROYED',W/2,H/2-6);
+g.font='13px Courier New';g.fillStyle='#0cc';g.fillText('TAP ARENA TO RESTART',W/2,H/2+20);
+}
+$('fill').style.width=(S.hp/S.max*100)+'%';
+$('hpt').textContent=Math.ceil(S.hp)+' / '+S.max;
+for(const k in SO)sic[k].className='so'+(k==S.soul?' on':'');
+stEl.textContent=SO[S.soul].n+' | SWAP '+(S.swc>0?S.swc.toFixed(1)+'s':'READY')+' | SHIELD '+S.sh;
+$('brain').textContent=now-S.mt<4000?S.msg:'BRAIN: WATCHING';
+const mg=Math.ceil(S.mega);if(mg!==lastM){lastM=mg;A.mega.el.textContent=mg>0?'MEGA '+mg:'MEGA'}
+requestAnimationFrame(loop);
 }
 reset();requestAnimationFrame(loop);
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
