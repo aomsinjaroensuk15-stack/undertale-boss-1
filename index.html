@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Undertale Heart Destroyer</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
+body{margin:0;background:#000;color:#ff0;font-family:'Courier New',monospace;display:flex;justify-content:center;touch-action:none}
+#app{width:100%;max-width:420px;padding:8px}
+#hud{border:3px solid #fff;padding:6px 8px;font-size:13px;margin-bottom:8px}
+#row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+#bar{flex:1;height:16px;border:2px solid #fff;background:#f00}
+#fill{height:100%;width:100%;background:#ff0}
+canvas{display:block;width:100%;background:#000;border:3px solid #fff;touch-action:none}
+#lv{display:flex;gap:8px;margin:8px 0}
+#lv button{flex:1;padding:10px 4px;font:bold 12px 'Courier New',monospace;background:#000;border:3px solid;touch-action:none}
+#l1{color:#0f0;border-color:#0f0!important}
+#l2{color:#f0f;border-color:#f0f!important}
+#l1.on{background:#0f0!important;color:#000}
+#l2.on{background:#f0f!important;color:#000}
+#hint{color:#0cc;font-size:11px;text-align:center;margin:6px 0 8px}
+#atk{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.a{padding:13px 2px;background:#000;color:#f80;border:2px solid #f80;font:12px 'Courier New',monospace;touch-action:none}
+.a:active{background:#f80;color:#000}
+.a:last-child{grid-column:1/-1}
+</style>
+</head>
+<body oncontextmenu="return false">
+<div id="app">
+  <div id="hud">
+    <div id="row">HEART HP <div id="bar"><div id="fill"></div></div><span id="hpt"></span></div>
+    <div>PHASE: DESTROY THE HEART</div>
+  </div>
+  <canvas id="c"></canvas>
+  <div id="lv">
+    <button id="l1" class="on">LEVEL 1 (500 HP)</button>
+    <button id="l2">LEVEL 2 (900 HP)</button>
+  </div>
+  <div id="hint">TAP ARENA OR PRESS ATTACK BUTTONS TO DESTROY THE HEART</div>
+  <div id="atk"></div>
+</div>
+<script>
+const W=340,H=400,R=5,Q=7,SPEED=260,MAXHZ=250;
+const cv=document.getElementById('c'),g=cv.getContext('2d');
+cv.width=W;cv.height=H;
+const $=id=>document.getElementById(id);
+const LV={1:500,2:900};
+let lvl=1,S;
+const rd=n=>Math.floor(Math.random()*n);
+const cl=(v,a,b)=>Math.max(a,Math.min(b,v));
+const line=(a,b,c,d)=>{g.beginPath();g.moveTo(a,b);g.lineTo(c,d);g.stroke()};
+const EMPTY=[];
+
+/* ---------- hazards: rects(t,m) = area (in seconds t from now) where the heart centre gets hit, with margin m ---------- */
+function wall(dir,gapW,amp,spd){
+  const v=dir<2,L=v?H:W,C=v?W:H,th=14,hw=gapW/2;
+  const base=amp?C/2:hw+20+Math.random()*(C-gapW-40),ph=Math.random()*6.28;
+  const gc=a=>base+amp*Math.sin(a*3.2+ph);
+  const s=a=>dir%2==0?-th+spd*a:L-spd*a;
+  return{age:0,hit:false,done:false,dmg:20,
+    upd(dt){this.age+=dt;this.done=this.age>(L+th)/spd+.1},
+    rects(t,m){const a=this.age+t,p=s(a),c=gc(a),ma=m>R?m+8:m,lo=p-ma,hi=p+th+ma;
+      return v?[[-50,lo,c-hw+m,hi],[c+hw-m,lo,W+50,hi]]:[[lo,-50,hi,c-hw+m],[lo,c+hw-m,hi,H+50]]},
+    draw(){const a=this.age,p=s(a),c=gc(a);g.fillStyle='#fff';
+      if(v){g.fillRect(0,p,c-hw,th);g.fillRect(c+hw,p,W-c-hw,th)}
+      else{g.fillRect(p,0,th,c-hw);g.fillRect(p,c+hw,th,H-c-hw)}}};
+}
+function blaster(px,py){
+  return{age:0,hit:false,done:false,dmg:50,
+    upd(dt){this.age+=dt;this.done=this.age>1.15},
+    rects(t,m){const a=this.age+t;if(a<.7||a>1.05)return EMPTY;const w=17+m;
+      return[[px-w,-50,px+w,H+50],[-50,py-w,W+50,py+w]]},
+    draw(){const a=this.age;
+      if(a<.7){g.strokeStyle='rgba(255,255,0,'+(.45+.3*Math.sin(a*30))+')';g.lineWidth=1;line(px,0,px,H);line(0,py,W,py)}
+      else if(a<1.05){const k=1-(a-.7)/.35*.5;
+        g.fillStyle='rgba(90,220,255,'+k+')';g.fillRect(px-17,0,34,H);g.fillRect(0,py-17,W,34);
+        g.fillStyle='#fff';g.fillRect(px-7,0,14,H);g.fillRect(0,py-7,W,14)}}};
+}
+function crusher(){
+  const gy=50+Math.random()*(H-100),gh=34;
+  const ext=a=>a<.6?0:a<1?(a-.6)/.4:a<1.7?1:a<2.1?1-(a-1.7)/.4:0;
+  return{age:0,hit:false,done:false,dmg:60,
+    upd(dt){this.age+=dt;this.done=this.age>2.15},
+    rects(t,m){const e=ext(this.age+t);if(e<=0)return EMPTY;
+      return[[-50,-50,W+50,e*(gy-gh/2)+m],[-50,H-e*(H-gy-gh/2)-m,W+50,H+50]]},
+    draw(){const e=ext(this.age);
+      if(e<=0){g.strokeStyle='rgba(255,60,60,.6)';g.lineWidth=1;line(0,gy-gh/2,W,gy-gh/2);line(0,gy+gh/2,W,gy+gh/2)}
+      else{g.fillStyle='#fff';g.fillRect(0,0,W,e*(gy-gh/2));g.fillRect(0,H-e*(H-gy-gh/2),W,H)}}};
+}
+const touching=(h,x,y,m)=>h.rects(0,m).some(r=>x>=r[0]&&x<=r[2]&&y>=r[1]&&y<=r[3]);
+const add=(...hs)=>{S.hz.push(...hs);if(S.hz.length>MAXHZ)S.hz.splice(0,S.hz.length-MAXHZ)};
+
+/* ---------- attacks (Sans): no cooldown, multi-touch ---------- */
+const A={
+  bone:{n:'BONE',f:()=>add(wall(rd(4),56,0,170))},
+  wave:{n:'WAVE',f:()=>add(wall(rd(4),60,68,150))},
+  blaster:{n:'BLASTER',f:()=>{
+    const sx=Math.random()<.5?-1:1,sy=Math.random()<.5?-1:1;
+    add(blaster(S.x,S.y),blaster(cl(S.x+sx*(70+Math.random()*60),20,W-20),cl(S.y+sy*(70+Math.random()*60),20,H-20)))}},
+  twowaves:{n:'TWO WAVES',f:()=>{const d=rd(4);add(wall(d,60,68,150),wall(d^1,60,68,150))}},
+  freeze:{n:'FREEZE',f:()=>S.frz=1.2},
+  grab:{n:'GRAB',f:()=>S.grab=2.2},
+  crusher:{n:'CRUSHER',f:()=>add(crusher())}
+};
+const box=$('atk');
+for(const k in A){
+  const b=document.createElement('button');b.className='a';b.textContent=A[k].n;
+  b.addEventListener('pointerdown',e=>{e.preventDefault();if(!S.over)A[k].f()});
+  box.appendChild(b);
+}
+
+/* ---------- state ---------- */
+function reset(){
+  S={hp:LV[lvl],max:LV[lvl],x:W/2,y:H/2,tx:W/2,ty:H/2,pt:0,pi:30,hz:[],frz:0,grab:0,flash:0,over:false,overT:0};
+}
+$('l1').addEventListener('pointerdown',()=>{lvl=1;$('l1').className='on';$('l2').className='';reset()});
+$('l2').addEventListener('pointerdown',()=>{lvl=2;$('l2').className='on';$('l1').className='';reset()});
+cv.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  if(S.over){if(performance.now()-S.overT>900)reset();return}
+  const r=cv.getBoundingClientRect();
+  add(blaster((e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height));
+});
+
+/* ---------- Heart AI ----------
+   Time-expanded search: rasterise every hazard onto a grid for the next ~0.8s,
+   then dynamic programming finds the path with the least damage. If any
+   safe path exists, the heart takes it. */
+const CS=10,NX=W/CS,NY=H/CS,NC=NX*NY,K=16;
+const Dz=Array.from({length:K+1},()=>new Float32Array(NC));
+const Cz=Array.from({length:K+1},()=>new Float32Array(NC));
+const Pen=new Float32Array(NC);
+for(let j=0;j<NY;j++)for(let i=0;i<NX;i++)Pen[j*NX+i]=.0004*Math.hypot((i+.5)*CS-W/2,(j+.5)*CS-H/2);
+function mark(D,r,w){
+  const i0=Math.max(0,Math.ceil(r[0]/CS-.5)),i1=Math.min(NX-1,Math.floor(r[2]/CS-.5)),
+        j0=Math.max(0,Math.ceil(r[1]/CS-.5)),j1=Math.min(NY-1,Math.floor(r[3]/CS-.5));
+  for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++)D[j*NX+i]+=w;
+}
+function plan(sp,drift){
+  const eff=sp*.85,dt=eff>0?Math.max(.09,CS*1.05/eff):.09,shift=drift*dt,reach=eff*dt;
+  const rr=Math.ceil((reach+Math.abs(shift))/CS)+1,off=[];
+  for(let dy=-rr;dy<=rr;dy++)for(let dx=-rr;dx<=rr;dx++)
+    if(Math.hypot(dx*CS,dy*CS-shift)<=reach+CS*.1)off.push(dx,dy);
+  if(!off.length)off.push(0,0);
+  const live=S.hz.filter(h=>!h.hit);
+  for(let k=1;k<=K;k++){
+    const D=Dz[k];D.set(Pen);const t=k*dt;
+    for(const h of live)for(const r of h.rects(t,Q))mark(D,r,h.dmg);
+  }
+  Cz[K].set(Dz[K]);
+  const nf=off.length>>1,fo=new Int32Array(nf);
+  for(let q=0;q<nf;q++)fo[q]=off[2*q+1]*NX+off[2*q];
+  for(let k=K-1;k>=1;k--){
+    const Dk=Dz[k],Ck=Cz[k],Cn=Cz[k+1],wk=1.2-k/K*.5;
+    for(let j=0;j<NY;j++){
+      const edgeRow=j<rr||j>=NY-rr;
+      for(let i=0;i<NX;i++){
+        const c=j*NX+i;let m=1e9;
+        if(!edgeRow&&i>=rr&&i<NX-rr){
+          for(let q=0;q<nf;q++){const v=Cn[c+fo[q]];if(v<m)m=v}
+        }else{
+          for(let q=0;q<nf;q++){
+            const ni=cl(i+off[2*q],0,NX-1),nj=cl(j+off[2*q+1],0,NY-1),v=Cn[nj*NX+ni];
+            if(v<m)m=v;
+          }
+        }
+        Ck[c]=Dk[c]*wk+m;
+      }
+    }
+  }
+  const ci=Math.floor(S.x/CS),cj=Math.floor(S.y/CS);let bs=1e9,bx=S.x,by=S.y;
+  for(let dy=-rr;dy<=rr;dy++)for(let dx=-rr;dx<=rr;dx++){
+    const ni=ci+dx,nj=cj+dy;if(ni<0||nj<0||ni>=NX||nj>=NY)continue;
+    const cx=(ni+.5)*CS,cy=(nj+.5)*CS,d=Math.hypot(cx-S.x,cy-(S.y+shift));
+    if(d>reach+CS*.6)continue;
+    const sc=Cz[1][nj*NX+ni]+.0015*Math.hypot(cx-S.x,cy-S.y);
+    if(sc<bs){bs=sc;bx=cx;by=cy}
+  }
+  if(sp>0&&!pathOk(S.x,S.y,bx,by,sp)){      // diagonal would clip a hazard corner: go one axis at a time
+    if(pathOk(S.x,S.y,bx,S.y,sp))return[bx,S.y];
+    if(pathOk(S.x,S.y,S.x,by,sp))return[S.x,by];
+  }
+  return[bx,by];
+}
+function pathOk(x0,y0,x1,y1,sp){
+  const T=Math.hypot(x1-x0,y1-y0)/sp;
+  for(let i=1;i<=8;i++){
+    const u=i/8,x=x0+(x1-x0)*u,y=y0+(y1-y0)*u;
+    for(const h of S.hz)if(!h.hit)for(const r of h.rects(T*u,R+1.5))
+      if(x>=r[0]&&x<=r[2]&&y>=r[1]&&y<=r[3])return false;
+  }
+  return true;
+}
+function moveHeart(dt,now){
+  const sp=SPEED*(S.frz>0?0:S.grab>0?.4:1),drift=S.grab>0&&S.frz<=0?380:0;
+  const busy=S.hz.some(h=>!h.hit);
+  if(now-S.pt>S.pi){
+    const t0=performance.now();S.pt=now;[S.tx,S.ty]=busy?plan(sp,drift):[W/2,H/2];
+    S.pi=cl((performance.now()-t0)*1.5,30,90);   // replan often, but never let planning eat the frame budget
+  }
+  const dx=S.tx-S.x,dy=S.ty-S.y,d=Math.hypot(dx,dy),st=Math.min(d,(busy?sp:Math.min(sp,90))*dt);
+  if(d>0){S.x+=dx/d*st;S.y+=dy/d*st}
+  S.y+=drift*dt;
+  S.x=cl(S.x,R,W-R);S.y=cl(S.y,R,H-R);
+}
+
+/* ---------- loop ---------- */
+function heart(x,y,c){
+  g.fillStyle=c;g.beginPath();g.moveTo(x,y+7);
+  g.bezierCurveTo(x-11,y-1,x-6,y-9,x,y-3);g.bezierCurveTo(x+6,y-9,x+11,y-1,x,y+7);g.fill();
+}
+let last=performance.now();
+function loop(now){
+  const dt=Math.min(.05,(now-last)/1000);last=now;
+  if(!S.over){
+    S.frz=Math.max(0,S.frz-dt);S.grab=Math.max(0,S.grab-dt);S.flash=Math.max(0,S.flash-dt);
+    S.hz.forEach(h=>h.upd(dt));
+    moveHeart(dt,now);
+    for(const h of S.hz)if(!h.hit&&touching(h,S.x,S.y,R)){h.hit=true;S.hp-=h.dmg;S.flash=.3}
+    S.hz=S.hz.filter(h=>!h.done);
+    if(S.hp<=0){S.hp=0;S.over=true;S.overT=now;S.hz=[]}
+  }
+  g.clearRect(0,0,W,H);
+  S.hz.forEach(h=>h.draw());
+  if(!S.over)heart(S.x,S.y,S.flash>0?'#fff':S.frz>0||S.grab>0?'#39f':'#f00');
+  else{
+    g.fillStyle='#ff0';g.font='bold 22px Courier New';g.textAlign='center';
+    g.fillText('HEART DESTROYED',W/2,H/2-6);
+    g.font='13px Courier New';g.fillStyle='#0cc';g.fillText('TAP ARENA TO RESTART',W/2,H/2+20);
+  }
+  $('fill').style.width=(S.hp/S.max*100)+'%';
+  $('hpt').textContent=Math.ceil(S.hp)+' / '+S.max;
+  requestAnimationFrame(loop);
+}
+reset();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
