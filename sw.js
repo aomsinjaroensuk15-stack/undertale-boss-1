@@ -1,5 +1,5 @@
 // เปลี่ยนเลขเวอร์ชันทุกครั้งที่แก้ index.html เพื่อให้เครื่องโหลดไฟล์ใหม่
-const CACHE = 'heart-destroyer-v1';
+const CACHE = 'heart-destroyer-v2';
 const FILES = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
