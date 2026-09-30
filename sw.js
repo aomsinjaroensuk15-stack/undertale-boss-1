@@ -1,5 +1,5 @@
-// เปลี่ยนเลขเวอร์ชันทุกครั้งที่แก้ index.html เพื่อให้เครื่องโหลดไฟล์ใหม่
-const CACHE = 'heart-destroyer-v2';
+// เปลี่ยนเลขเวอร์ชันทุกครั้งที่แก้ไฟล์ เพื่อให้เครื่องล้าง cache เก่า
+const CACHE = 'heart-destroyer-v3';
 const FILES = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
@@ -14,10 +14,14 @@ self.addEventListener('activate', e => {
   );
 });
 
-// เปิดจาก cache ก่อน (ออฟไลน์ได้) ถ้าไม่มีค่อยไปเน็ต
+// หน้า HTML: ลองเน็ตก่อน (ได้ไฟล์ใหม่เสมอ) ถ้าออฟไลน์ค่อยใช้ cache | ไฟล์อื่น: cache ก่อน
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  const isPage = e.request.mode === 'navigate';
   e.respondWith(
-    caches.match(e.request).then(hit => hit || fetch(e.request).catch(() => caches.match('./index.html')))
+    isPage
+      ? fetch(e.request).then(r => { const c = r.clone(); caches.open(CACHE).then(x => x.put(e.request, c)); return r; })
+          .catch(() => caches.match(e.request).then(h => h || caches.match('./index.html')))
+      : caches.match(e.request).then(h => h || fetch(e.request))
   );
 });
