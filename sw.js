@@ -1,5 +1,5 @@
 // เปลี่ยนเลขเวอร์ชันทุกครั้งที่แก้ไฟล์ เพื่อให้เครื่องล้าง cache เก่า
-const CACHE = 'heart-destroyer-v6';
+const CACHE = 'heart-destroyer-v7';
 const CORE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 const AUDIO = ['./megalovania.mp3', './blaster.mp3', './bone.mp3'];
 
