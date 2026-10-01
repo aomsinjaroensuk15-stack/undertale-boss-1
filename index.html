@@ -9,7 +9,7 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <style>
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
-body{margin:0;background:#000;color:#ff0;font-family:'Courier New',monospace;display:flex;justify-content:center;touch-action:none}
+body{margin:0;background:#000;color:#ff0;font-family:'Courier New',monospace;display:flex;justify-content:center;touch-action:manipulation}
 #app{width:100%;max-width:420px;padding:8px}
 #hud{border:3px solid #fff;padding:6px 8px;font-size:13px;margin-bottom:8px}
 #row{display:flex;align-items:center;gap:8px;margin-bottom:4px}
@@ -27,6 +27,10 @@ canvas{display:block;width:100%;background:#000;border:3px solid #fff;touch-acti
 #l2{color:#f0f;border-color:#f0f!important}
 #l1.on{background:#0f0!important;color:#000}
 #l2.on{background:#f0f!important;color:#000}
+#opt{display:flex;align-items:center;gap:8px;font-size:12px;margin:0 0 6px}
+#opt input{flex:1;accent-color:#f0f;touch-action:pan-x}
+#opt b{color:#fff}
+#mu{padding:6px 8px;background:#000;color:#0cc;border:2px solid #0cc;font:11px 'Courier New',monospace}
 #hint{color:#0cc;font-size:11px;text-align:center;margin:6px 0 8px}
 #atk{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .a{padding:13px 2px;background:#000;color:#f80;border:2px solid #f80;font:11px 'Courier New',monospace;touch-action:none}
@@ -47,6 +51,7 @@ canvas{display:block;width:100%;background:#000;border:3px solid #fff;touch-acti
 <button id="l1" class="on">LEVEL 1 (500 HP)</button>
 <button id="l2">LEVEL 2 (900 HP)</button>
 </div>
+<div id="opt"><span>HIT <b id="hcv">0.1</b>%</span><input id="hc" type="range" min="0" max="100" step="0.1" value="0.1"><button id="mu">SOUND ON</button></div>
 <div id="hint">TAP ARENA OR PRESS ATTACK BUTTONS TO DESTROY THE HEART</div>
 <div id="atk"></div>
 </div>
@@ -56,7 +61,7 @@ const cv=document.getElementById('c'),g=cv.getContext('2d');
 cv.width=W;cv.height=H;
 const $=id=>document.getElementById(id);
 const LV={1:500,2:900};
-const HIT_CHANCE=0.001; // chance that a hit which lands actually hurts (0.001 = 0.1%)
+let HIT_CHANCE=0.001; // chance that a hit which lands actually hurts (set by the slider, 0..1)
 const RAILS=[45,100,155,210,265,320,375]; // purple web rails
 const nearRail=y=>RAILS.reduce((a,b)=>Math.abs(b-y)<Math.abs(a-y)?b:a);
 let lvl=1,S;
@@ -64,6 +69,18 @@ const rd=n=>Math.floor(Math.random()*n);
 const cl=(v,a,b)=>Math.max(a,Math.min(b,v));
 const line=(a,b,c,d)=>{g.beginPath();g.moveTo(a,b);g.lineTo(c,d);g.stroke()};
 const EMPTY=[];
+
+/* ---------- sound ---------- */
+const bgm=new Audio('megalovania.mp3');bgm.loop=true;bgm.volume=.5;
+const SFX={blaster:new Audio('blaster.mp3'),bone:new Audio('bone.mp3')};
+const lastS={};let muted=false;
+function sfx(n){if(muted)return;const t=performance.now();if(t-(lastS[n]||0)<70)return;lastS[n]=t;const a=SFX[n].cloneNode();a.volume=.8;a.play().catch(()=>{})}
+document.addEventListener('pointerdown',()=>{if(!muted&&bgm.paused)bgm.play().catch(()=>{})},true);
+$('mu').addEventListener('pointerdown',()=>{muted=!muted;$('mu').textContent=muted?'SOUND OFF':'SOUND ON';muted?bgm.pause():bgm.play().catch(()=>{})});
+const hc=$('hc');
+function setHit(v){v=Math.min(100,Math.max(0,parseFloat(v)||0));HIT_CHANCE=v/100;hc.value=v;$('hcv').textContent=v.toFixed(1);try{localStorage.setItem('hc',v)}catch(e){}}
+try{const v=localStorage.getItem('hc');if(v!==null)setHit(v)}catch(e){}
+hc.addEventListener('input',()=>setHit(hc.value));
 
 /* ---------- SOULS: each one plays by different rules (sp=speed, dr=gravity, vs=vertical speed, rad=hitbox, ts=time) ---------- */
 const SO={
@@ -93,7 +110,7 @@ else{g.fillRect(p,0,th,c-hw);g.fillRect(p,c+hw,th,H-c-hw)}}};
 // mode 1 = vertical beam only, delay = staggered start, track = follows the heart before locking on
 function blaster(px,py,mode,delay,track){
 return{k:'b',age:-(delay||0),hit:false,done:false,dmg:mode?35:50,
-upd(dt){this.age+=dt;if(track&&this.age<.4){px=S.x;py=S.y}this.done=this.age>1.15},
+upd(dt){this.age+=dt;if(track&&this.age<.4){px=S.x;py=S.y}if(this.age>=.7&&!this.f){this.f=1;sfx('blaster')}this.done=this.age>1.15},
 rects(t,m){const a=this.age+t;if(a<.7||a>1.05)return EMPTY;const w=17+m;
 return mode?[[px-w,-50,px+w,H+50]]:[[px-w,-50,px+w,H+50],[-50,py-w,W+50,py+w]]},
 draw(){const a=this.age;if(a<0)return;
@@ -121,7 +138,7 @@ rects(t,m){const a=this.age+t,o=[];for(const d of ds){if(a<d[1])continue;const b
 draw(){g.fillStyle='#fff';for(const d of ds){if(this.age<d[1])continue;const b=(this.age-d[1])*320;g.fillRect(d[0]-6,b-90,12,90)}}};
 }
 const hitAt=(h,t,m)=>h.rects(t,m).some(r=>S.x>=r[0]&&S.x<=r[2]&&S.y>=r[1]&&S.y<=r[3]);
-const add=(...hs)=>{S.hz.push(...hs);if(S.hz.length>MAXHZ)S.hz.splice(0,S.hz.length-MAXHZ)};
+const add=(...hs)=>{S.hz.push(...hs);for(const h of hs)if(h.k=='w'||h.k=='c')sfx('bone');if(S.hz.length>MAXHZ)S.hz.splice(0,S.hz.length-MAXHZ)};
 function barrage(){const x0=10+Math.random()*30;for(let i=0;i<5;i++)add(blaster(x0+i*70,H/2,1,i*.12))}
 
 /* ---------- attacks (Sans): cl = what the Heart brain learns from it ---------- */
@@ -337,7 +354,7 @@ for(const h of S.hz)if(!h.hit&&hitAt(h,0,R*SO[S.soul].rad)){
 h.hit=true;
 if(S.soul=='green'&&S.sh>0){S.sh--;S.blk=.3;msg('SHIELD BLOCKED IT')}
 else if(Math.random()>HIT_CHANCE)phase();
-else{S.hp-=h.dmg;S.flash=.3;msg('IMPOSSIBLE... A HIT LANDED?!')}
+else{S.hp-=h.dmg;S.flash=.3;msg(HIT_CHANCE<.05?'IMPOSSIBLE... A HIT LANDED?!':'HIT!')}
 }
 S.hz=S.hz.filter(h=>!h.done);
 S.fx=S.fx.filter(f=>(f.t-=dt)>0);
@@ -363,7 +380,7 @@ g.font='13px Courier New';g.fillStyle='#0cc';g.fillText('TAP ARENA TO RESTART',W
 $('fill').style.width=(S.hp/S.max*100)+'%';
 $('hpt').textContent=Math.ceil(S.hp)+' / '+S.max;
 for(const k in SO)sic[k].className='so'+(k==S.soul?' on':'');
-stEl.textContent=SO[S.soul].n+' | SWAP '+(S.swc>0?S.swc.toFixed(1)+'s':'READY')+' | SHIELD '+S.sh+' | HIT '+(HIT_CHANCE*100)+'%';
+stEl.textContent=SO[S.soul].n+' | SWAP '+(S.swc>0?S.swc.toFixed(1)+'s':'READY')+' | SHIELD '+S.sh+' | HIT '+(HIT_CHANCE*100).toFixed(1)+'%';
 $('brain').textContent=now-S.mt<4000?S.msg:'BRAIN: WATCHING';
 const mg=Math.ceil(S.mega);if(mg!==lastM){lastM=mg;A.mega.el.textContent=mg>0?'MEGA '+mg:'MEGA'}
 requestAnimationFrame(loop);
