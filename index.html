@@ -56,6 +56,9 @@ const cv=document.getElementById('c'),g=cv.getContext('2d');
 cv.width=W;cv.height=H;
 const $=id=>document.getElementById(id);
 const LV={1:500,2:900};
+const HIT_CHANCE=0.001; // chance that a hit which lands actually hurts (0.001 = 0.1%)
+const RAILS=[45,100,155,210,265,320,375]; // purple web rails
+const nearRail=y=>RAILS.reduce((a,b)=>Math.abs(b-y)<Math.abs(a-y)?b:a);
 let lvl=1,S;
 const rd=n=>Math.floor(Math.random()*n);
 const cl=(v,a,b)=>Math.max(a,Math.min(b,v));
@@ -69,7 +72,8 @@ orange:{n:'ORANGE',c:'#f80',sp:1.4,dr:0,vs:1,rad:1.25,why:'BRAVERY DASH'},
 blue:{n:'BLUE',c:'#39f',sp:1.25,dr:120,vs:.6,rad:1,why:'GRAVITY LANE DODGE'},
 yellow:{n:'YELLOW',c:'#ff0',sp:.9,dr:0,vs:1,rad:1,why:'JUSTICE SHOT'},
 green:{n:'GREEN',c:'#0c0',sp:.5,dr:0,vs:1,rad:1,why:'SHIELD TANKS IT'},
-cyan:{n:'CYAN',c:'#0ff',sp:.9,dr:0,vs:1,rad:1,why:'PATIENCE: SLOW TIME'}
+cyan:{n:'CYAN',c:'#0ff',sp:.9,dr:0,vs:1,rad:1,why:'PATIENCE: SLOW TIME'},
+purple:{n:'PURPLE',c:'#a0f',sp:1.2,dr:0,vs:2.4,rad:1,why:'WEB RAIL HOP'}
 };
 
 /* ---------- hazards: rects(t,m) = area where the heart centre gets hit t seconds from now ---------- */
@@ -181,10 +185,10 @@ const i0=Math.max(0,Math.ceil(r[0]/CS-.5)),i1=Math.min(NX-1,Math.floor(r[2]/CS-.
 j0=Math.max(0,Math.ceil(r[1]/CS-.5)),j1=Math.min(NY-1,Math.floor(r[3]/CS-.5));
 for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++)D[j*NX+i]+=w;
 }
-function plan(sp,drift,vs,rad,ts){
+function plan(sp,drift,vs,rad,ts,rail){
 PT=ts;PR=R*rad;const m=Q*rad;
 const eff=sp*.85,dt=eff>0?Math.max(.09,CS*1.05/eff):.09,shift=drift*dt,reach=eff*dt;
-const rr=Math.ceil((reach+Math.abs(shift))/CS)+1,off=[];
+const rr=Math.ceil((Math.max(1,vs)*reach+Math.abs(shift))/CS)+1,off=[];
 for(let dy=-rr;dy<=rr;dy++)for(let dx=-rr;dx<=rr;dx++)
 if(Math.hypot(dx*CS,(dy*CS-shift)/vs)<=reach+CS*.1)off.push(dx,dy);
 if(!off.length)off.push(0,0);
@@ -221,9 +225,11 @@ for(let dy=-rr;dy<=rr;dy++)for(let dx=-rr;dx<=rr;dx++){
 const ni=ci+dx,nj=cj+dy;if(ni<0||nj<0||ni>=NX||nj>=NY)continue;
 const cx=(ni+.5)*CS,cy=(nj+.5)*CS,d=Math.hypot(cx-S.x,(cy-(S.y+shift))/vs);
 if(d>reach+CS*.6)continue;
+if(rail&&Math.abs(cy-nearRail(cy))>CS*.6)continue;
 const sc=Cz[1][nj*NX+ni]+.0015*Math.hypot(cx-S.x,cy-S.y);
 if(sc<bs){bs=sc;bx=cx;by=cy}
 }
+if(rail)by=nearRail(by);
 if(sp>0&&!pathOk(S.x,S.y,bx,by,sp)){
 if(pathOk(S.x,S.y,bx,S.y,sp))return[bx,S.y,bs];
 if(pathOk(S.x,S.y,S.x,by,sp))return[S.x,by,bs];
@@ -243,7 +249,7 @@ return true;
 function est(n,cur){
 const so=SO[n],fz=cur&&S.frz>0,gr=cur&&S.grab>0,sp=SPEED*so.sp*(fz?0:gr?.4:1),dr=fz?0:so.dr+(gr?380:0);
 const ts=n=='cyan'&&(S.slow>0||S.slowCd<=0)?.4:1;
-const p=plan(sp,dr,so.vs,so.rad,ts);
+const p=plan(sp,dr,so.vs,so.rad,ts,n=='purple');
 if(n=='green')p[2]=Math.max(0,p[2]-S.sh*50);
 if(n=='yellow'&&S.shot<=0)p[2]*=.55;
 return p;
@@ -270,12 +276,23 @@ for(let j=0;j<7;j++)for(let i=0;i<6;i++){
 const x=(i+.5)*W/6,y=(j+.5)*H/7,s=S.heat[j*6+i]+.004*Math.hypot(x-S.x,y-S.y)+.006*Math.hypot(x-W/2,y-H/2);
 if(s<b){b=s;bx=x;by=y}
 }
+if(S.soul=='purple')by=nearRail(by);
 return[bx,by];
 }
 function stance(){
 const c=S.cnt,sc={yellow:c.w,cyan:c.b,green:c.c,orange:c.f};let b='red',m=2.5;
 for(const k in sc)if(sc[k]>m){m=sc[k];b=k}
 if(b!=S.soul)swap(b,'READ PLAYER');
+}
+// last-resort cheat: negate the hit and blink to a spot that is safe for the next 0.4s
+function phase(){
+const ox=S.x,oy=S.y,m=R*SO[S.soul].rad+8,pu=S.soul=='purple';
+for(let i=0;i<60;i++){
+const x=R+Math.random()*(W-2*R),y=pu?RAILS[rd(7)]:R+Math.random()*(H-2*R);let ok=true;
+for(const h of S.hz){if(h.hit)continue;for(let t=0;t<=.4;t+=.1)if(h.rects(t,m).some(r=>x>=r[0]&&x<=r[2]&&y>=r[1]&&y<=r[3])){ok=false;break}if(!ok)break}
+if(ok){S.x=x;S.y=y;S.tx=x;S.ty=y;break}
+}
+S.fx.push({x:ox,y:oy,t:.3,g:1});msg('PHASE SHIFT: HIT NEGATED');
 }
 function moveHeart(dt,now){
 const so=SO[S.soul],busy=S.hz.some(h=>!h.hit);
@@ -319,7 +336,8 @@ if(th){h.done=true;S.shot=1.3;S.fx.push({x:S.x,y:S.y,t:.25});msg('YELLOW SHOT: B
 for(const h of S.hz)if(!h.hit&&hitAt(h,0,R*SO[S.soul].rad)){
 h.hit=true;
 if(S.soul=='green'&&S.sh>0){S.sh--;S.blk=.3;msg('SHIELD BLOCKED IT')}
-else{S.hp-=h.dmg;S.flash=.3}
+else if(Math.random()>HIT_CHANCE)phase();
+else{S.hp-=h.dmg;S.flash=.3;msg('IMPOSSIBLE... A HIT LANDED?!')}
 }
 S.hz=S.hz.filter(h=>!h.done);
 S.fx=S.fx.filter(f=>(f.t-=dt)>0);
@@ -327,8 +345,9 @@ if(S.hp<=0){S.hp=0;S.over=true;S.overT=now;S.hz=[]}
 }
 g.clearRect(0,0,W,H);
 if(S.slow>0){g.fillStyle='rgba(0,255,255,.09)';g.fillRect(0,0,W,H)}
+if(S.soul=='purple'&&!S.over){g.strokeStyle='rgba(170,0,255,.7)';g.lineWidth=1;for(const y of RAILS)line(0,y,W,y)}
 S.hz.forEach(h=>h.draw());
-for(const f of S.fx){g.strokeStyle='rgba(255,255,0,'+f.t*4+')';g.lineWidth=4;line(f.x,f.y,f.x,0)}
+for(const f of S.fx){if(f.g){g.globalAlpha=Math.min(1,f.t*3);heart(f.x,f.y,'#fff',1.2);g.globalAlpha=1}else{g.strokeStyle='rgba(255,255,0,'+f.t*4+')';g.lineWidth=4;line(f.x,f.y,f.x,0)}}
 if(!S.over){
 const so=SO[S.soul];
 heart(S.x,S.y,S.flash>0?'#fff':so.c,so.rad);
@@ -344,7 +363,7 @@ g.font='13px Courier New';g.fillStyle='#0cc';g.fillText('TAP ARENA TO RESTART',W
 $('fill').style.width=(S.hp/S.max*100)+'%';
 $('hpt').textContent=Math.ceil(S.hp)+' / '+S.max;
 for(const k in SO)sic[k].className='so'+(k==S.soul?' on':'');
-stEl.textContent=SO[S.soul].n+' | SWAP '+(S.swc>0?S.swc.toFixed(1)+'s':'READY')+' | SHIELD '+S.sh;
+stEl.textContent=SO[S.soul].n+' | SWAP '+(S.swc>0?S.swc.toFixed(1)+'s':'READY')+' | SHIELD '+S.sh+' | HIT '+(HIT_CHANCE*100)+'%';
 $('brain').textContent=now-S.mt<4000?S.msg:'BRAIN: WATCHING';
 const mg=Math.ceil(S.mega);if(mg!==lastM){lastM=mg;A.mega.el.textContent=mg>0?'MEGA '+mg:'MEGA'}
 requestAnimationFrame(loop);
