@@ -119,7 +119,7 @@ else{g.fillRect(p,0,th,c-hw);g.fillRect(p,c+hw,th,H-c-hw)}}};
 // mode 1 = vertical beam only, delay = staggered start, track = follows the heart before locking on
 function blaster(px,py,mode,delay,track){
 return{k:'b',age:-(delay||0),hit:false,done:false,dmg:mode?35:50,
-upd(dt){this.age+=dt;if(track&&this.age<.4){px=S.x;py=S.y}this.done=this.age>1.15},
+upd(dt){this.age+=dt;if(track&&this.age<.4){px=S.x;py=S.y}if(this.age>=.7&&!this.f){this.f=1;sfx('blaster')}this.done=this.age>1.15},
 rects(t,m){const a=this.age+t;if(a<.7||a>1.05)return EMPTY;const w=17+m;
 return mode?[[px-w,-50,px+w,H+50]]:[[px-w,-50,px+w,H+50],[-50,py-w,W+50,py+w]]},
 draw(){const a=this.age;if(a<0)return;
@@ -147,7 +147,7 @@ rects(t,m){const a=this.age+t,o=[];for(const d of ds){if(a<d[1])continue;const b
 draw(){g.fillStyle='#fff';for(const d of ds){if(this.age<d[1])continue;const b=(this.age-d[1])*320;g.fillRect(d[0]-6,b-90,12,90)}}};
 }
 const hitAt=(h,t,m)=>h.rects(t,m).some(r=>S.x>=r[0]&&S.x<=r[2]&&S.y>=r[1]&&S.y<=r[3]);
-const add=(...hs)=>{S.hz.push(...hs);for(const h of hs){if(h.k=='w'||h.k=='c')sfx('bone');else if(h.k=='b')sfx('blaster')}if(S.hz.length>MAXHZ)S.hz.splice(0,S.hz.length-MAXHZ)};
+const add=(...hs)=>{S.hz.push(...hs);for(const h of hs){if(h.k=='w'||h.k=='c')sfx('bone');}if(S.hz.length>MAXHZ)S.hz.splice(0,S.hz.length-MAXHZ)};
 function barrage(){const x0=10+Math.random()*30;for(let i=0;i<5;i++)add(blaster(x0+i*70,H/2,1,i*.12))}
 
 /* ---------- attacks (Sans): cl = what the Heart brain learns from it ---------- */
