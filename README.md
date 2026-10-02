@@ -1,5 +1,5 @@
 # Undertale-Boss-1
-# [👉 แตะเพื่อเปิดแอป 👈](https://aomsinjaroensuk15-stack.github.io/undertale-boss-1/)
+# [🚀 แตะเพื่อเปิดแอป 🚀](https://aomsinjaroensuk15-stack.github.io/undertale-boss-1/)
 
 📖 รายละเอียดและวิธีเล่น (Game Overview)
 
